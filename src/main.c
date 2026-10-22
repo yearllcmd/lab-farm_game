@@ -22,14 +22,15 @@
 #define MIN_WORK_HOURS 1
 #define MAX_WORK_HOURS 1000
 
-// пункты меню (номера 0-5)
+// пункты меню (номера 0-6)
 enum Menu {
     MENU_EXIT,
     MENU_CLOCK,
     MENU_WORK,
     MENU_SHOW,
     MENU_PUT,
-    MENU_DROP
+    MENU_DROP,
+    MENU_CLEAN
 };
 
 // названия предметов (индекс = id предмета)
@@ -86,7 +87,7 @@ int main(void)
     int inventory[INVENTORY_SIZE] = {1, 7, 3, 7, 2, 9, 7, 0, 8, 9};
 
     // переменные для ввода
-    int choice, hours, slot, id;
+    int choice, hours, slot, id, count;
 
     // главный цикл игры, крутится пока не выбран выход
     do {
@@ -97,8 +98,9 @@ int main(void)
                "[3] Посмотреть инвентарь\n"
                "[4] Положить предмет в слот\n"
                "[5] Выбросить предмет\n"
+               "[6] Очистка от мусора\n"
                "Выберите пункт: ");
-        choice = read_number(MENU_EXIT, MENU_DROP);
+        choice = read_number(MENU_EXIT, MENU_CLEAN);
 
         // выбор пункта меню
         switch (choice) {
@@ -143,6 +145,20 @@ int main(void)
             slot = read_number(0, INVENTORY_SIZE - 1);
             inventory[slot] = EMPTY;
             printf("Слот %d очищен\n", slot);
+            break;
+
+        // [6] вариант 5 - очистка от мусора
+        case MENU_CLEAN:
+            printf("ID мусора (%d-%d): ", MIN_ITEM_ID, MAX_ITEM_ID);
+            id = read_number(MIN_ITEM_ID, MAX_ITEM_ID);
+            count = 0;
+            for (int i = 0; i < INVENTORY_SIZE; i++) {
+                if (inventory[i] == id) {
+                    inventory[i] = EMPTY;
+                    count++;
+                }
+            }
+            printf("Очищено слотов: %d\n", count);
             break;
 
         // на всякий случай
