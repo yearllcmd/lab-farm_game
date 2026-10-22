@@ -1,0 +1,25 @@
+# Скомпилированные файлы
+*.exe
+*.o
+*.obj
+*.out
+*.a
+*.lib
+*.dll
+*.so
+*.pdb
+*.ilk
+
+# Служебные папки IDE
+.vs/
+.vscode/
+.idea/
+cmake-build-*/
+build/
+Debug/
+Release/
+
+# Мусор операционной системы
+Thumbs.db
+desktop.ini
+.DS_Store
