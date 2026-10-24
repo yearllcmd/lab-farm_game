@@ -4,11 +4,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
+#include <wctype.h>
+#include <locale.h>
 
 // windows.h только для Windows (русские буквы в консоли)
 #ifdef _WIN32
 #include <windows.h>
-#include <wchar.h>
 #endif
 
 // константы рюкзака и предметов
@@ -22,6 +24,8 @@
 // файлы
 #define ITEMS_FILE "items.txt"
 #define DIARY_FILE "diary.txt"
+#define INPUT_FILE "input.txt"
+#define OUTPUT_FILE "output.txt"
 
 // константы времени
 #define START_DAY 1
@@ -36,6 +40,11 @@
 // длина имени фермера (без '\0')
 #define MAX_FARMER_NAME 32
 
+// поиск по энциклопедии
+#define SEARCH_SIZE 64                    // размер поискового слова
+#define HIGHLIGHT_SIZE (LINE_SIZE * 3)    // строка со скобками: в худшем случае каждая буква станет [x]
+#define RESULT_SIZE (HIGHLIGHT_SIZE * 3)  // та же строка в UTF-8 (до 3 байт на букву)
+
 // пункты меню
 enum Menu {
     MENU_EXIT,
@@ -47,6 +56,7 @@ enum Menu {
     MENU_CLEAN,
     MENU_SEARCH,
     MENU_DIARY,
+    MENU_ENCYCLOPEDIA,
     MENU_COUNT // сколько всего пунктов
 };
 
@@ -142,6 +152,15 @@ void ask_item_name(char name[])
     }
 }
 
+// слово для поиска, не пустое
+void ask_search_word(char word[])
+{
+    printf("Слово для поиска: ");
+    while (!read_line(word, SEARCH_SIZE) || strlen(word) == 0) {
+        printf("Ошибка! Слово от 1 до %d символов: ", SEARCH_SIZE - 1);
+    }
+}
+
 int ask_work_hours(void)
 {
     printf("Сколько часов работать? ");
@@ -212,6 +231,36 @@ int load_items(char names[][MAX_NAME_LEN], const char filename[])
     return loaded;
 }
 
+// UTF-8 -> широкая строка (в ней одна буква = один wchar_t)
+void to_wide(const char text[], wchar_t wide[], int size)
+{
+#ifdef _WIN32
+    if (MultiByteToWideChar(CP_UTF8, 0, text, -1, wide, size) == 0) {
+        wide[0] = L'\0';
+    }
+#else
+    if (mbstowcs(wide, text, size) == (size_t)-1) {
+        wide[0] = L'\0';
+    }
+    wide[size - 1] = L'\0';
+#endif
+}
+
+// широкая строка -> UTF-8
+void from_wide(const wchar_t wide[], char text[], int size)
+{
+#ifdef _WIN32
+    if (WideCharToMultiByte(CP_UTF8, 0, wide, -1, text, size, NULL, NULL) == 0) {
+        text[0] = '\0';
+    }
+#else
+    if (wcstombs(text, wide, size) == (size_t)-1) {
+        text[0] = '\0';
+    }
+    text[size - 1] = '\0';
+#endif
+}
+
 // ===== обработка =====
 
 // день после работы (каждые 24 часа - новый день)
@@ -263,6 +312,60 @@ int find_item_slots(int inventory[], int id, int slots[])
     return found;
 }
 
+// меняет регистр буквы: п -> П, П -> п (русские буквы идут по алфавиту подряд)
+wchar_t other_case(wchar_t c)
+{
+    if (c >= L'а' && c <= L'я') {
+        return c - L'а' + L'А';
+    }
+    if (c >= L'А' && c <= L'Я') {
+        return c - L'А' + L'а';
+    }
+    if (c == L'ё') {
+        return L'Ё';
+    }
+    if (c == L'Ё') {
+        return L'ё';
+    }
+    if (iswlower(c)) {
+        return towupper(c);
+    }
+    return towlower(c);
+}
+
+// вариант 3: оборачивает каждое вхождение слова в [ ]
+// первая буква слова может быть в любом регистре (полив / Полив)
+// возвращает сколько раз слово нашлось
+int highlight_word(const wchar_t line[], const wchar_t word[], wchar_t result[])
+{
+    // второй вариант слова - с первой буквой другого регистра
+    wchar_t other[SEARCH_SIZE];
+    wcscpy(other, word);
+    other[0] = other_case(other[0]);
+
+    int len = wcslen(word);
+    int count = 0;
+    int r = 0; // куда пишем в result
+    int i = 0; // где читаем в line
+
+    while (line[i] != L'\0') {
+        if (wcsncmp(line + i, word, len) == 0 || wcsncmp(line + i, other, len) == 0) {
+            // нашли: пишем [слово] как оно написано в строке
+            result[r++] = L'[';
+            for (int k = 0; k < len; k++) {
+                result[r++] = line[i + k];
+            }
+            result[r++] = L']';
+            i += len;
+            count++;
+        } else {
+            result[r++] = line[i++]; // обычная буква - копируем
+        }
+    }
+    result[r] = L'\0';
+    return count;
+}
+
 // ===== вывод =====
 
 void print_menu(const char name[])
@@ -276,7 +379,8 @@ void print_menu(const char name[])
            "[5] Выбросить предмет\n"
            "[6] Очистка от мусора\n"
            "[7] Поиск предмета в рюкзаке по названию\n"
-           "[8] Записать состояние в дневник фермера\n");
+           "[8] Записать состояние в дневник фермера\n"
+           "[9] Расшифровать старые записи (поиск по энциклопедии)\n");
 }
 
 void print_time(int day, int hour)
@@ -304,6 +408,22 @@ void print_summary(FILE *out, const char name[], int day, int hour,
         fprintf(out, "  Слот %d: %s\n", i, names[inventory[i]]);
     }
     fprintf(out, "\n");
+}
+
+// найденная статья с её номером, out - экран или файл
+void print_article(FILE *out, int number, const char text[])
+{
+    fprintf(out, "Статья %d: %s\n", number, text);
+}
+
+// итог поиска, out - экран или файл
+void print_search_total(FILE *out, int found)
+{
+    if (found == 0) {
+        fprintf(out, "Ничего не найдено\n");
+    } else {
+        fprintf(out, "Найдено статей: %d\n", found);
+    }
 }
 
 // ===== пункты меню =====
@@ -375,12 +495,64 @@ void menu_write_diary(const char name[], int day, int hour,
     printf("Записано в %s\n", DIARY_FILE);
 }
 
+// [9] вариант 3 - поиск по энциклопедии: input.txt -> экран и output.txt
+void menu_search_encyclopedia(void)
+{
+    FILE *input = fopen(INPUT_FILE, "r");
+    if (input == NULL) {
+        printf("Ошибка: файл %s не найден\n", INPUT_FILE);
+        return;
+    }
+    FILE *output = fopen(OUTPUT_FILE, "w"); // "w" - перезаписать файл
+    if (output == NULL) {
+        printf("Ошибка: не удалось создать %s\n", OUTPUT_FILE);
+        fclose(input);
+        return;
+    }
+
+    char word[SEARCH_SIZE];
+    ask_search_word(word);
+    wchar_t wide_word[SEARCH_SIZE];
+    to_wide(word, wide_word, SEARCH_SIZE);
+
+    fprintf(output, "Поиск: %s\n", word);
+
+    char line[LINE_SIZE];
+    wchar_t wide_line[LINE_SIZE];
+    wchar_t wide_result[HIGHLIGHT_SIZE];
+    char result[RESULT_SIZE];
+    int number = 0; // номер статьи
+    int found = 0;  // сколько статей нашлось
+
+    while (read_file_line(input, line, LINE_SIZE)) {
+        if (strlen(line) == 0) { // пустые строки - не статьи
+            continue;
+        }
+        number++;
+        to_wide(line, wide_line, LINE_SIZE);
+        if (highlight_word(wide_line, wide_word, wide_result) > 0) {
+            from_wide(wide_result, result, RESULT_SIZE);
+            print_article(stdout, number, result);
+            print_article(output, number, result);
+            found++;
+        }
+    }
+    print_search_total(stdout, found);
+    print_search_total(output, found);
+
+    fclose(input);
+    fclose(output);
+    printf("Результат записан в %s\n", OUTPUT_FILE);
+}
+
 // главная функция, отсюда стартует программа
 int main(void)
 {
     // русские буквы в консоли
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
+#else
+    setlocale(LC_ALL, "");
 #endif
 
     // имя фермера (+1 место под '\0')
@@ -441,6 +613,9 @@ int main(void)
             break;
         case MENU_DIARY:
             menu_write_diary(farmer_name, current_day, current_hour, inventory, item_names);
+            break;
+        case MENU_ENCYCLOPEDIA:
+            menu_search_encyclopedia();
             break;
         // на всякий случай
         default:
