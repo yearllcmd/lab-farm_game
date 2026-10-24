@@ -1,12 +1,14 @@
-// Весёлый фермер, лаба 2, вариант 5
+// Весёлый фермер, лаба 3, вариант 3
 
-// подключаем библиотеки (printf, scanf, exit)
+// подключаем библиотеки
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 // windows.h только для Windows (русские буквы в консоли)
 #ifdef _WIN32
 #include <windows.h>
+#include <wchar.h>
 #endif
 
 // константы рюкзака и предметов
@@ -22,7 +24,10 @@
 #define MIN_WORK_HOURS 1
 #define MAX_WORK_HOURS 1000
 
-// пункты меню (номера 0-6)
+// размер строки для ввода
+#define LINE_SIZE 256
+
+// пункты меню
 enum Menu {
     MENU_EXIT,
     MENU_CLOCK,
@@ -39,36 +44,166 @@ const char *item_names[MAX_ITEM_ID + 1] = {
     "Лейка", "Удобрение", "Сорняк", "Сломанная ветка", "Ржавый гвоздь"
 };
 
-// функция read_number - ввод числа с защитой от дурака
-int read_number(int min, int max)
-{
-    int number;
-    char next = 0;
+// ===== ввод =====
 
-    // повторяем, пока ввод неправильный
-    while (scanf("%d%c", &number, &next) != 2 || next != '\n' || number < min || number > max) {
-        // ввод закончился - выходим
-        if (feof(stdin)) {
+// читает строку с клавиатуры, возвращает 0 если строка слишком длинная
+int read_line(char line[], int size)
+{
+#ifdef _WIN32
+    // в консоли Windows читаем через ReadConsoleW, иначе русские буквы ломаются
+    HANDLE console = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode;
+    if (GetConsoleMode(console, &mode)) {
+        wchar_t wide[LINE_SIZE];
+        DWORD count;
+        if (!ReadConsoleW(console, wide, LINE_SIZE - 1, &count, NULL)) {
             exit(0);
         }
-        // чистим остаток строки
-        if (next != '\n') {
-            int c;
-            while ((c = getchar()) != '\n' && c != EOF) {
-            }
+        wide[count] = L'\0';
+        // нет Enter - строка не влезла, дочитываем остаток
+        if (wcschr(wide, L'\n') == NULL) {
+            do {
+                if (!ReadConsoleW(console, wide, LINE_SIZE - 1, &count, NULL)) {
+                    exit(0);
+                }
+                wide[count] = L'\0';
+            } while (wcschr(wide, L'\n') == NULL);
+            return 0;
         }
-        next = 0;
+        wide[wcscspn(wide, L"\r\n")] = L'\0';
+        return WideCharToMultiByte(CP_UTF8, 0, wide, -1, line, size, NULL, NULL) != 0;
+    }
+#endif
+    if (fgets(line, size, stdin) == NULL) {
+        exit(0);
+    }
+    // нет Enter - строка не влезла, дочитываем остаток
+    if (strchr(line, '\n') == NULL && !feof(stdin)) {
+        int c;
+        while ((c = getchar()) != '\n' && c != EOF) {
+        }
+        return 0;
+    }
+    line[strcspn(line, "\r\n")] = '\0';
+    return 1;
+}
+
+// ввод числа с защитой от дурака
+int read_number(int min, int max)
+{
+    char line[LINE_SIZE];
+    int number;
+    char extra;
+
+    // повторяем, пока не введут одно число из диапазона
+    while (!read_line(line, LINE_SIZE) || sscanf(line, "%d %c", &number, &extra) != 1
+           || number < min || number > max) {
         printf("Ошибка! Введите число от %d до %d: ", min, max);
     }
     return number;
 }
 
-// функция print_inventory - показать рюкзак
+int ask_menu_choice(void)
+{
+    printf("Выберите пункт: ");
+    return read_number(MENU_EXIT, MENU_CLEAN);
+}
+
+int ask_work_hours(void)
+{
+    printf("Сколько часов работать? ");
+    return read_number(MIN_WORK_HOURS, MAX_WORK_HOURS);
+}
+
+int ask_slot(void)
+{
+    printf("Номер слота (0-%d): ", INVENTORY_SIZE - 1);
+    return read_number(0, INVENTORY_SIZE - 1);
+}
+
+int ask_item_id(void)
+{
+    printf("ID предмета (%d-%d): ", MIN_ITEM_ID, MAX_ITEM_ID);
+    return read_number(MIN_ITEM_ID, MAX_ITEM_ID);
+}
+
+// ===== обработка =====
+
+// день после работы (каждые 24 часа - новый день)
+int day_after_work(int day, int hour, int hours)
+{
+    return day + (hour + hours) / HOURS_IN_DAY;
+}
+
+// час после работы (остаток от суток)
+int hour_after_work(int hour, int hours)
+{
+    return (hour + hours) % HOURS_IN_DAY;
+}
+
+// убирает все предметы с этим id, возвращает сколько слотов очищено
+int clean_trash(int inventory[], int id)
+{
+    int count = 0; // счётчик удалённых слотов
+    for (int i = 0; i < INVENTORY_SIZE; i++) {
+        if (inventory[i] == id) { // если находит нужный айди то...
+            inventory[i] = EMPTY; // удаляет этот предмет после чего...
+            count++;              // увеличивает счётчик на 1
+        }
+    }
+    return count;
+}
+
+// ===== вывод =====
+
+void print_menu(void)
+{
+    printf("\n[0] Выход\n"
+           "[1] Посмотреть на часы\n"
+           "[2] Промотать время (Поработать)\n"
+           "[3] Посмотреть инвентарь\n"
+           "[4] Положить предмет в слот\n"
+           "[5] Выбросить предмет\n"
+           "[6] Очистка от мусора\n");
+}
+
+void print_time(int day, int hour)
+{
+    printf("Текущее время: День %d, %02d:00\n", day, hour);
+}
+
 void print_inventory(int inventory[])
 {
     for (int i = 0; i < INVENTORY_SIZE; i++) {
-        printf("Слот %d: [%d] (%s)\n", i, inventory[i], item_names[inventory[i]]);
+        printf("Слот %d: [%d] - %s\n", i, inventory[i], item_names[inventory[i]]);
     }
+}
+
+// ===== пункты меню =====
+
+// [4] положить предмет в слот
+void menu_put_item(int inventory[])
+{
+    int slot = ask_slot();
+    int id = ask_item_id();
+    inventory[slot] = id;
+    printf("В слот %d положен предмет: %s\n", slot, item_names[id]);
+}
+
+// [5] выбросить предмет
+void menu_drop_item(int inventory[])
+{
+    int slot = ask_slot();
+    inventory[slot] = EMPTY;
+    printf("Слот %d очищен\n", slot);
+}
+
+// [6] очистка от мусора (вариант 5 из лабы 2)
+void menu_clean_trash(int inventory[])
+{
+    printf("Мусор - ");
+    int id = ask_item_id();
+    printf("Очищено слотов: %d\n", clean_trash(inventory, id));
 }
 
 // главная функция, отсюда стартует программа
@@ -86,81 +221,38 @@ int main(void)
     // рюкзак (7, 8, 9 - мусор)
     int inventory[INVENTORY_SIZE] = {1, 7, 3, 7, 2, 9, 7, 0, 8, 9};
 
-    // переменные для ввода
-    int choice, hours, slot, id, count;
+    int choice, hours;
 
     // главный цикл игры, крутится пока не выбран выход
     do {
-        // меню
-        printf("\n[0] Выход\n"
-               "[1] Посмотреть на часы\n"
-               "[2] Промотать время (Поработать)\n"
-               "[3] Посмотреть инвентарь\n"
-               "[4] Положить предмет в слот\n"
-               "[5] Выбросить предмет\n"
-               "[6] Очистка от мусора\n"
-               "Выберите пункт: ");
-        choice = read_number(MENU_EXIT, MENU_CLEAN);
+        print_menu();
+        choice = ask_menu_choice();
 
-        // выбор пункта меню
         switch (choice) {
-        // [0] выход
         case MENU_EXIT:
             printf("Пока!\n");
             break;
-
-        // [1] посмотреть на часы
         case MENU_CLOCK:
-            printf("Текущее время: День %d, %02d:00\n", current_day, current_hour);
+            print_time(current_day, current_hour);
             break;
-
-        // [2] промотать время, переход на следующие дни
         case MENU_WORK:
-            printf("Сколько часов работать? ");
-            hours = read_number(MIN_WORK_HOURS, MAX_WORK_HOURS);
-            current_hour += hours;
-            current_day += current_hour / HOURS_IN_DAY;
-            current_hour %= HOURS_IN_DAY;
-            printf("Текущее время: День %d, %02d:00\n", current_day, current_hour);
+            hours = ask_work_hours();
+            current_day = day_after_work(current_day, current_hour, hours);
+            current_hour = hour_after_work(current_hour, hours);
+            print_time(current_day, current_hour);
             break;
-
-        // [3] посмотреть инвентарь
         case MENU_SHOW:
             print_inventory(inventory);
             break;
-
-        // [4] положить предмет в слот
         case MENU_PUT:
-            printf("Номер слота (0-%d): ", INVENTORY_SIZE - 1);
-            slot = read_number(0, INVENTORY_SIZE - 1);
-            printf("ID предмета (%d-%d): ", MIN_ITEM_ID, MAX_ITEM_ID);
-            id = read_number(MIN_ITEM_ID, MAX_ITEM_ID);
-            inventory[slot] = id;
-            printf("В слот %d положен предмет: %s\n", slot, item_names[id]);
+            menu_put_item(inventory);
             break;
-
-        // [5] выбросить предмет
         case MENU_DROP:
-            printf("Номер слота (0-%d): ", INVENTORY_SIZE - 1);
-            slot = read_number(0, INVENTORY_SIZE - 1);
-            inventory[slot] = EMPTY;
-            printf("Слот %d очищен\n", slot);
+            menu_drop_item(inventory);
             break;
-
-        // [6] вариант 5 - очистка от мусора
         case MENU_CLEAN:
-            printf("ID мусора (%d-%d): ", MIN_ITEM_ID, MAX_ITEM_ID);
-            id = read_number(MIN_ITEM_ID, MAX_ITEM_ID);
-            count = 0;
-            for (int i = 0; i < INVENTORY_SIZE; i++) {
-                if (inventory[i] == id) {
-                    inventory[i] = EMPTY;
-                    count++;
-                }
-            }
-            printf("Очищено слотов: %d\n", count);
+            menu_clean_trash(inventory);
             break;
-
         // на всякий случай
         default:
             printf("Нет такого пункта\n");
