@@ -14,8 +14,13 @@
 // константы рюкзака и предметов
 #define INVENTORY_SIZE 10
 #define EMPTY 0
+#define MAX_ITEMS 10
+#define MAX_NAME_LEN 32
 #define MIN_ITEM_ID 1
-#define MAX_ITEM_ID 9
+#define MAX_ITEM_ID (MAX_ITEMS - 1)
+
+// файл с названиями предметов
+#define ITEMS_FILE "items.txt"
 
 // константы времени
 #define START_DAY 1
@@ -41,10 +46,10 @@ enum Menu {
     MENU_CLEAN
 };
 
-// названия предметов (индекс = id предмета)
-const char *item_names[MAX_ITEM_ID + 1] = {
-    "Пусто", "Дерево", "Камень", "Семена", "Морковь",
-    "Лейка", "Удобрение", "Сорняк", "Сломанная ветка", "Ржавый гвоздь"
+// стандартные названия, если items.txt не найден (индекс = id предмета)
+const char *DEFAULT_ITEM_NAMES[MAX_ITEMS] = {
+    "Пусто", "Дерево", "Камень", "Семена_пшеницы", "Морковь",
+    "Лейка", "Удобрение", "Сорняк", "Сломанная_ветка", "Ржавый_гвоздь"
 };
 
 // ===== ввод =====
@@ -139,6 +144,58 @@ int ask_item_id(void)
     return read_number(MIN_ITEM_ID, MAX_ITEM_ID);
 }
 
+// ===== файлы =====
+
+// читает строку из файла без '\n', возвращает 0 когда файл кончился
+int read_file_line(FILE *file, char line[], int size)
+{
+    if (fgets(line, size, file) == NULL) {
+        return 0;
+    }
+    // строка длиннее буфера - пропускаем остаток
+    if (strchr(line, '\n') == NULL && !feof(file)) {
+        int c;
+        while ((c = fgetc(file)) != '\n' && c != EOF) {
+        }
+    }
+    line[strcspn(line, "\r\n")] = '\0';
+    return 1;
+}
+
+// заполняет каталог стандартными названиями
+void set_default_items(char names[][MAX_NAME_LEN])
+{
+    for (int id = 0; id < MAX_ITEMS; id++) {
+        strcpy(names[id], DEFAULT_ITEM_NAMES[id]);
+    }
+}
+
+// читает названия из файла (строки вида "1 Дерево")
+// возвращает сколько названий загружено, или -1 если файла нет
+int load_items(char names[][MAX_NAME_LEN], const char filename[])
+{
+    set_default_items(names); // чего нет в файле - останется по умолчанию
+
+    FILE *file = fopen(filename, "r");
+    if (file == NULL) {
+        return -1;
+    }
+
+    char line[LINE_SIZE];
+    int loaded = 0;
+    while (read_file_line(file, line, LINE_SIZE)) {
+        int id, pos;
+        // id, потом пробелы, pos - где начинается название
+        if (sscanf(line, "%d %n", &id, &pos) == 1 && id >= 0 && id < MAX_ITEMS
+            && strlen(line + pos) > 0 && strlen(line + pos) < MAX_NAME_LEN) {
+            strcpy(names[id], line + pos);
+            loaded++;
+        }
+    }
+    fclose(file);
+    return loaded;
+}
+
 // ===== обработка =====
 
 // день после работы (каждые 24 часа - новый день)
@@ -185,22 +242,23 @@ void print_time(int day, int hour)
     printf("Текущее время: День %d, %02d:00\n", day, hour);
 }
 
-void print_inventory(int inventory[])
+// название берём из каталога по id предмета
+void print_inventory(int inventory[], char names[][MAX_NAME_LEN])
 {
     for (int i = 0; i < INVENTORY_SIZE; i++) {
-        printf("Слот %d: [%d] - %s\n", i, inventory[i], item_names[inventory[i]]);
+        printf("Слот %d: [%d] - %s\n", i, inventory[i], names[inventory[i]]);
     }
 }
 
 // ===== пункты меню =====
 
 // [4] положить предмет в слот
-void menu_put_item(int inventory[])
+void menu_put_item(int inventory[], char names[][MAX_NAME_LEN])
 {
     int slot = ask_slot();
     int id = ask_item_id();
     inventory[slot] = id;
-    printf("В слот %d положен предмет: %s\n", slot, item_names[id]);
+    printf("В слот %d положен предмет: %s\n", slot, names[id]);
 }
 
 // [5] выбросить предмет
@@ -232,6 +290,15 @@ int main(void)
     ask_farmer_name(farmer_name);
     printf("Привет, %s! Добро пожаловать на ферму.\n", farmer_name);
 
+    // каталог предметов из файла
+    char item_names[MAX_ITEMS][MAX_NAME_LEN];
+    int loaded = load_items(item_names, ITEMS_FILE);
+    if (loaded < 0) {
+        printf("Внимание: файл %s не найден, названия предметов по умолчанию\n", ITEMS_FILE);
+    } else {
+        printf("Загружено названий из %s: %d\n", ITEMS_FILE, loaded);
+    }
+
     // игровое время: день 1, 08:00
     int current_day = START_DAY;
     int current_hour = START_HOUR;
@@ -260,10 +327,10 @@ int main(void)
             print_time(current_day, current_hour);
             break;
         case MENU_SHOW:
-            print_inventory(inventory);
+            print_inventory(inventory, item_names);
             break;
         case MENU_PUT:
-            menu_put_item(inventory);
+            menu_put_item(inventory, item_names);
             break;
         case MENU_DROP:
             menu_drop_item(inventory);
