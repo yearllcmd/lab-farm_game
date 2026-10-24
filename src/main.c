@@ -19,8 +19,9 @@
 #define MIN_ITEM_ID 1
 #define MAX_ITEM_ID (MAX_ITEMS - 1)
 
-// файл с названиями предметов
+// файлы
 #define ITEMS_FILE "items.txt"
+#define DIARY_FILE "diary.txt"
 
 // константы времени
 #define START_DAY 1
@@ -45,6 +46,7 @@ enum Menu {
     MENU_DROP,
     MENU_CLEAN,
     MENU_SEARCH,
+    MENU_DIARY,
     MENU_COUNT // сколько всего пунктов
 };
 
@@ -273,7 +275,8 @@ void print_menu(const char name[])
            "[4] Положить предмет в слот\n"
            "[5] Выбросить предмет\n"
            "[6] Очистка от мусора\n"
-           "[7] Поиск предмета в рюкзаке по названию\n");
+           "[7] Поиск предмета в рюкзаке по названию\n"
+           "[8] Записать состояние в дневник фермера\n");
 }
 
 void print_time(int day, int hour)
@@ -287,6 +290,20 @@ void print_inventory(int inventory[], char names[][MAX_NAME_LEN])
     for (int i = 0; i < INVENTORY_SIZE; i++) {
         printf("Слот %d: [%d] - %s\n", i, inventory[i], names[inventory[i]]);
     }
+}
+
+// сводка для дневника, out - экран (stdout) или файл
+void print_summary(FILE *out, const char name[], int day, int hour,
+                   int inventory[], char names[][MAX_NAME_LEN])
+{
+    fprintf(out, "===== Дневник фермера =====\n");
+    fprintf(out, "Фермер: %s\n", name);
+    fprintf(out, "Время: День %d, %02d:00\n", day, hour);
+    fprintf(out, "Инвентарь:\n");
+    for (int i = 0; i < INVENTORY_SIZE; i++) {
+        fprintf(out, "  Слот %d: %s\n", i, names[inventory[i]]);
+    }
+    fprintf(out, "\n");
 }
 
 // ===== пункты меню =====
@@ -340,6 +357,22 @@ void menu_search_item(int inventory[], char names[][MAX_NAME_LEN])
         printf(" %d", slots[i]);
     }
     printf("\n");
+}
+
+// [8] запись в дневник: на экран и в конец diary.txt
+void menu_write_diary(const char name[], int day, int hour,
+                      int inventory[], char names[][MAX_NAME_LEN])
+{
+    print_summary(stdout, name, day, hour, inventory, names);
+
+    FILE *file = fopen(DIARY_FILE, "a"); // "a" - дописать в конец
+    if (file == NULL) {
+        printf("Ошибка: не удалось открыть %s\n", DIARY_FILE);
+        return;
+    }
+    print_summary(file, name, day, hour, inventory, names);
+    fclose(file);
+    printf("Записано в %s\n", DIARY_FILE);
 }
 
 // главная функция, отсюда стартует программа
@@ -405,6 +438,9 @@ int main(void)
             break;
         case MENU_SEARCH:
             menu_search_item(inventory, item_names);
+            break;
+        case MENU_DIARY:
+            menu_write_diary(farmer_name, current_day, current_hour, inventory, item_names);
             break;
         // на всякий случай
         default:

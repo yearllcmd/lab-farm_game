@@ -23,3 +23,7 @@ Release/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Файлы, которые создаёт программа
+diary.txt
+output.txt
