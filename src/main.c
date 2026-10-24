@@ -27,6 +27,9 @@
 // размер строки для ввода
 #define LINE_SIZE 256
 
+// длина имени фермера (без '\0')
+#define MAX_FARMER_NAME 32
+
 // пункты меню
 enum Menu {
     MENU_EXIT,
@@ -103,6 +106,15 @@ int read_number(int min, int max)
     return number;
 }
 
+// имя фермера: не пустое и не длиннее MAX_FARMER_NAME
+void ask_farmer_name(char name[])
+{
+    printf("Как зовут фермера? ");
+    while (!read_line(name, MAX_FARMER_NAME + 1) || strlen(name) == 0) {
+        printf("Ошибка! Имя от 1 до %d символов: ", MAX_FARMER_NAME);
+    }
+}
+
 int ask_menu_choice(void)
 {
     printf("Выберите пункт: ");
@@ -156,9 +168,10 @@ int clean_trash(int inventory[], int id)
 
 // ===== вывод =====
 
-void print_menu(void)
+void print_menu(const char name[])
 {
-    printf("\n[0] Выход\n"
+    printf("\n===== Фермер %s =====\n", name);
+    printf("[0] Выход\n"
            "[1] Посмотреть на часы\n"
            "[2] Промотать время (Поработать)\n"
            "[3] Посмотреть инвентарь\n"
@@ -214,6 +227,11 @@ int main(void)
     SetConsoleOutputCP(CP_UTF8);
 #endif
 
+    // имя фермера (+1 место под '\0')
+    char farmer_name[MAX_FARMER_NAME + 1];
+    ask_farmer_name(farmer_name);
+    printf("Привет, %s! Добро пожаловать на ферму.\n", farmer_name);
+
     // игровое время: день 1, 08:00
     int current_day = START_DAY;
     int current_hour = START_HOUR;
@@ -225,7 +243,7 @@ int main(void)
 
     // главный цикл игры, крутится пока не выбран выход
     do {
-        print_menu();
+        print_menu(farmer_name);
         choice = ask_menu_choice();
 
         switch (choice) {
