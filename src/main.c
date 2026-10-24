@@ -43,8 +43,13 @@ enum Menu {
     MENU_SHOW,
     MENU_PUT,
     MENU_DROP,
-    MENU_CLEAN
+    MENU_CLEAN,
+    MENU_SEARCH,
+    MENU_COUNT // сколько всего пунктов
 };
+
+// предмет не найден в каталоге
+#define NOT_FOUND -1
 
 // стандартные названия, если items.txt не найден (индекс = id предмета)
 const char *DEFAULT_ITEM_NAMES[MAX_ITEMS] = {
@@ -123,7 +128,16 @@ void ask_farmer_name(char name[])
 int ask_menu_choice(void)
 {
     printf("Выберите пункт: ");
-    return read_number(MENU_EXIT, MENU_CLEAN);
+    return read_number(MENU_EXIT, MENU_COUNT - 1);
+}
+
+// название предмета, не пустое
+void ask_item_name(char name[])
+{
+    printf("Название предмета: ");
+    while (!read_line(name, MAX_NAME_LEN) || strlen(name) == 0) {
+        printf("Ошибка! Название от 1 до %d символов: ", MAX_NAME_LEN - 1);
+    }
 }
 
 int ask_work_hours(void)
@@ -223,6 +237,30 @@ int clean_trash(int inventory[], int id)
     return count;
 }
 
+// ищет id по названию, NOT_FOUND если такого нет
+int find_item_id(char names[][MAX_NAME_LEN], const char name[])
+{
+    for (int id = 0; id < MAX_ITEMS; id++) {
+        if (strcmp(names[id], name) == 0) { // 0 - строки одинаковые
+            return id;
+        }
+    }
+    return NOT_FOUND;
+}
+
+// записывает в slots номера слотов с этим id, возвращает сколько нашлось
+int find_item_slots(int inventory[], int id, int slots[])
+{
+    int found = 0;
+    for (int i = 0; i < INVENTORY_SIZE; i++) {
+        if (inventory[i] == id) {
+            slots[found] = i;
+            found++;
+        }
+    }
+    return found;
+}
+
 // ===== вывод =====
 
 void print_menu(const char name[])
@@ -234,7 +272,8 @@ void print_menu(const char name[])
            "[3] Посмотреть инвентарь\n"
            "[4] Положить предмет в слот\n"
            "[5] Выбросить предмет\n"
-           "[6] Очистка от мусора\n");
+           "[6] Очистка от мусора\n"
+           "[7] Поиск предмета в рюкзаке по названию\n");
 }
 
 void print_time(int day, int hour)
@@ -275,6 +314,32 @@ void menu_clean_trash(int inventory[])
     printf("Мусор - ");
     int id = ask_item_id();
     printf("Очищено слотов: %d\n", clean_trash(inventory, id));
+}
+
+// [7] поиск предмета по названию
+void menu_search_item(int inventory[], char names[][MAX_NAME_LEN])
+{
+    char name[MAX_NAME_LEN];
+    ask_item_name(name);
+
+    int id = find_item_id(names, name);
+    if (id == NOT_FOUND) {
+        printf("Предмета \"%s\" нет в каталоге\n", name);
+        return;
+    }
+
+    int slots[INVENTORY_SIZE];
+    int found = find_item_slots(inventory, id, slots);
+    if (found == 0) {
+        printf("Предмета \"%s\" нет в рюкзаке\n", name);
+        return;
+    }
+
+    printf("\"%s\" (ID %d) лежит в слотах:", name, id);
+    for (int i = 0; i < found; i++) {
+        printf(" %d", slots[i]);
+    }
+    printf("\n");
 }
 
 // главная функция, отсюда стартует программа
@@ -337,6 +402,9 @@ int main(void)
             break;
         case MENU_CLEAN:
             menu_clean_trash(inventory);
+            break;
+        case MENU_SEARCH:
+            menu_search_item(inventory, item_names);
             break;
         // на всякий случай
         default:
